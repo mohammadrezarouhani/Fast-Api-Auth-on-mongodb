@@ -1,18 +1,24 @@
 from datetime import datetime, timedelta
 from decouple import config
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from pymongo import MongoClient
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+from fastapi.encoders import jsonable_encoder
 
-from models import Token, TokenData, User, UserInDB
+from models import Token, TokenData, User, UserCreate, UserInDB
 
 SECRET_KEY = config('secret')
 ALGORITHM = config('algorithm')
 ACCESS_TOKEN_EXPIRE_MINUTES = int(config('access_token_life_time'))
 
+
+# client = MongoClient(config('MONGO_URI'))
+# db = client[config('MONGO_DB')]
+# users_collection = db['users']
 
 fake_users_db = {
     "johndoe": {
@@ -39,21 +45,6 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
-
-
-def authenticate_user(fake_db, username: str, password: str):
-    user = get_user(fake_db, username)
-    if not user:
-        return False
-    if not verify_password(password, user.hashed_password):
-        return False
-    return user
-
-
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
     if expires_delta:
@@ -63,6 +54,18 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+def get_user(db, username: str):
+    if username in db:
+        user_dict = db[username]
+        return UserInDB(**user_dict)
+
+
+def create_user(user: UserInDB) -> dict:
+    user_encoded = jsonable_encoder(user)
+    fake_users_db.update(user_encoded)
+    return user_encoded
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
@@ -85,7 +88,16 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     return user
 
 
-@app.post("/token", response_model=Token)
+def authenticate_user(fake_db, username: str, password: str):
+    user = get_user(fake_db, username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+
+@app.post("/token/", response_model=Token, tags=['users'])
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ):
@@ -104,8 +116,13 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.get("/users/me/", response_model=User)
+@app.get("/users/me/", response_model=User, tags=['users'])
 async def read_users_me(
     current_user: Annotated[User, Depends(get_current_user)]
 ):
     return current_user
+
+
+@app.post("/users/register/", tags=['users'])
+async def register_new_user(user: UserCreate) -> dict:
+    return create_user(user)
