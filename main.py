@@ -9,100 +9,28 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.encoders import jsonable_encoder
 
-from models import Token, TokenData, User, UserCreate, UserInDB
+from auth import (authenticate_user,
+                  create_access_token,
+                  get_password_hash,
+                  verify_password,
+                  get_current_user,
+                  get_user)
+from databases import *
+from models import Token, TokenData, User, UserInDB, UserCreate
 
-SECRET_KEY = config('secret')
-ALGORITHM = config('algorithm')
-ACCESS_TOKEN_EXPIRE_MINUTES = int(config('access_token_life_time'))
-
-
-# client = MongoClient(config('MONGO_URI'))
-# db = client[config('MONGO_DB')]
-# users_collection = db['users']
-
-fake_users_db = {
-    "johndoe": {
-        "username": "johndoe",
-        "full_name": "John Doe",
-        "email": "johndoe@example.com",
-        "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",
-    }
-}
-
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+import pdb
 
 app = FastAPI()
 
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
-
-
-def create_user(user: UserInDB) -> dict:
-    user_encoded = jsonable_encoder(user)
-    fake_users_db.update(user_encoded)
-    return user_encoded
-
-
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-        token_data = TokenData(username=username)
-    except JWTError:
-        raise credentials_exception
-    user = get_user(fake_users_db, username=token_data.username)
-    if user is None:
-        raise credentials_exception
-    return user
-
-
-def authenticate_user(fake_db, username: str, password: str):
-    user = get_user(fake_db, username)
-    if not user:
-        return False
-    if not verify_password(password, user.hashed_password):
-        return False
-    return user
+ACCESS_TOKEN_EXPIRE_MINUTES = config('access_token_life_time')
 
 
 @app.post("/token/", response_model=Token, tags=['users'])
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ):
-    user = authenticate_user(
-        fake_users_db, form_data.username, form_data.password)
+    user = authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -111,7 +39,7 @@ async def login_for_access_token(
         )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        data={"username": user.username}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -123,6 +51,21 @@ async def read_users_me(
     return current_user
 
 
-@app.post("/users/register/", tags=['users'])
-async def register_new_user(user: UserCreate) -> dict:
-    return create_user(user)
+@app.post("/users/register/", status_code=status.HTTP_201_CREATED, tags=['users'])
+async def register_new_user(user: UserCreate):
+    userdb = get_user(user.username)
+    if (userdb):
+        raise HTTPException(
+            status_code=409, detail="user with this username already exist!!!")
+
+    if len(user.username) < 4:
+        raise HTTPException(
+            400, detail="username should be at least have 4 letter")
+    elif len(user.password) < 4:
+        raise HTTPException(
+            400, detail="password should be at least have 4 letter widthr")
+
+    user.password=get_password_hash(user.password)
+    user_json=jsonable_encoder(user)
+    result=users_collection.insert_one(user_json)
+    return User(**user_json)
