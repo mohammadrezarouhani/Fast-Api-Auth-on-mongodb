@@ -23,7 +23,7 @@ import pdb
 app = FastAPI()
 
 
-ACCESS_TOKEN_EXPIRE_MINUTES = config('access_token_life_time')
+ACCESS_TOKEN_EXPIRE_MINUTES = int(config('access_token_life_time'))
 
 
 @app.post("/token/", response_model=Token, tags=['users'])

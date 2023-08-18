@@ -18,7 +18,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 SECRET_KEY = config('secret')
 ALGORITHM = config('algorithm')
-ACCESS_TOKEN_EXPIRE_MINUTES = int(config('access_token_life_time'))
 
 
 def verify_password(plain_password, hashed_password):
@@ -42,7 +41,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 
 def get_user(username: str):
     user = users_collection.find_one({"username": username})
-    return user
+    return UserInDB(**user)
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):

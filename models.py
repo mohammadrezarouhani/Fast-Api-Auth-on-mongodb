@@ -17,7 +17,7 @@ class User(BaseModel):
 
 
 class UserInDB(User):
-    id: int
+    _id: str
     password: str
 
 
