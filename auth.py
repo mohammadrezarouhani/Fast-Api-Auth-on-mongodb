@@ -45,9 +45,11 @@ def get_user(username: str):
         return UserInDB(**user)
     return None
 
-def check_token_black_listed(token:str):
-    token=black_list_collection.find_one({'token':token})
+
+def check_token_black_listed(token: str):
+    token = black_list_collection.find_one({'token': token})
     return token
+
 
 async def verify_token(token: Annotated[str, Depends(oauth2_scheme)]):
     credentials_exception = HTTPException(
@@ -66,7 +68,7 @@ async def verify_token(token: Annotated[str, Depends(oauth2_scheme)]):
     except JWTError:
         raise credentials_exception
     user = get_user(username=token_data.username)
-    is_black_listed=check_token_black_listed(token)
+    is_black_listed = check_token_black_listed(token)
     if user is None or is_black_listed:
         raise credentials_exception
     return token
