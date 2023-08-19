@@ -9,7 +9,7 @@ from fastapi.security import OAuth2PasswordBearer
 from fastapi.encoders import jsonable_encoder
 
 from models import Token, TokenData, User, UserInDB
-from databases import users_collection
+from databases import *
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -41,10 +41,15 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 
 def get_user(username: str):
     user = users_collection.find_one({"username": username})
-    return UserInDB(**user)
+    if user:
+        return UserInDB(**user)
+    return None
 
+def check_token_black_listed(token:str):
+    token=black_list_collection.find_one({'token':token})
+    return token
 
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+async def verify_token(token: Annotated[str, Depends(oauth2_scheme)]):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -53,14 +58,26 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("username")
+
         if username is None:
             raise credentials_exception
+
         token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
     user = get_user(username=token_data.username)
-    if user is None:
+    is_black_listed=check_token_black_listed(token)
+    if user is None or is_black_listed:
         raise credentials_exception
+    return token
+
+
+async def get_current_user(token: Annotated[str, Depends(verify_token)]):
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    username: str = payload.get("username")
+    token_data = TokenData(username=username)
+
+    user = get_user(username=token_data.username)
     return user
 
 
