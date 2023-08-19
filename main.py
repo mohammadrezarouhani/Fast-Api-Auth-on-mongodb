@@ -68,7 +68,7 @@ async def register_new_user(user: UserCreate):
     return User(**user_json)
 
 
-@app.post('/users/logout/', status_code=200)
+@app.post('/users/logout/', status_code=200,tags=['auth'])
 def login(token: Annotated[Token, Depends(verify_token)]):
     black_list_collection.insert_one({'token':token})
     return {'successfull': "user logout successfull"}
